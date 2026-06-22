@@ -9,6 +9,7 @@ import {
   deleteGraphQLEndpoint,
   graphqlIntrospect
 } from '../api';
+import { getFields, buildQueryWithSelection, VariableInput, FieldSelector, getTypeFromSchema } from '../components/GraphQLBuilder';
 
 function parseEndpoints(input: string) {
   return input
@@ -70,6 +71,8 @@ export default function GraphQLEndpoints() {
   const [queryText, setQueryText] = useState('');
   const [savedTasks, setSavedTasks] = useState<any[]>([]);
   const [editingTask, setEditingTask] = useState<any>(null);
+  const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
+  const [variableValues, setVariableValues] = useState<Record<string, any>>({});
 
   const selectedEndpoint = selectedIndex !== null ? endpoints[selectedIndex] : null;
 
@@ -92,6 +95,20 @@ export default function GraphQLEndpoints() {
       variables
     };
   }, [selectedEndpoint, selectedOperation, requestName, variablesJson]);
+
+  const selectedOperationQuery = useMemo(() => {
+    if (!selectedOperation || !selectedEndpoint?.schema) return '';
+    const returnTypeName = selectedOperation.returnType?.name;
+    if (!returnTypeName) return '';
+    return buildQueryWithSelection(
+      selectedOperation.kind,
+      selectedOperation.name,
+      selectedOperation.args || [],
+      selectedFields,
+      returnTypeName,
+      selectedEndpoint.schema
+    );
+  }, [selectedOperation, selectedFields, selectedEndpoint]);
 
   useEffect(() => {
     async function loadSavedData() {
@@ -171,67 +188,54 @@ export default function GraphQLEndpoints() {
 
   async function saveRequestTask() {
     if (!selectedEndpoint) return;
-    let variables = {};
+
+    const finalQuery = queryText || selectedOperationQuery;
+    if (!finalQuery) {
+      alert('Query text is required. Please select fields or provide a query.');
+      return;
+    }
+
     try {
-      variables = JSON.parse(variablesJson);
-    } catch (error) {
-      alert('Variables must be valid JSON');
-      return;
-    }
-
-    const query = queryText || (selectedOperation ? buildGraphQLQuery(
-      selectedOperation.kind,
-      selectedOperation.name,
-      selectedOperation.args || [],
-      selectedOperation.returnType?.kind || 'OBJECT'
-    ) : '');
-
-    if (!query) {
-      alert('Query text is required');
-      return;
-    }
-
-    if (editingTask) {
-      try {
+      const variables = Object.keys(variableValues).length > 0 ? variableValues : {};
+      
+      if (editingTask) {
         const updated = await updateRequestTask(editingTask._id, {
           name: requestName || editingTask.name,
           endpoint: selectedEndpoint.url,
           operationType: editingTask.operationType,
           operation: editingTask.operation,
-          query,
+          query: finalQuery,
           variables
         });
         setSavedTasks((prev) => prev.map((task) => (task._id === updated._id ? updated : task)));
         setEditingTask(null);
         setRequestName('');
-        setVariablesJson('{\n  \n}');
+        setVariableValues({});
+        setSelectedFields(new Set());
         setQueryText('');
         alert('Request task updated');
-      } catch (error: any) {
-        alert(error?.message || 'Failed to update request task');
-      }
-    } else {
-      if (!selectedOperation) {
-        alert('Select an operation or provide a query');
-        return;
-      }
-      try {
+      } else {
+        if (!selectedOperation) {
+          alert('Select an operation');
+          return;
+        }
         const task = await createRequestTask({
           name: requestName || `${selectedOperation.name} request`,
           endpoint: selectedEndpoint.url,
           operationType: selectedOperation.kind,
           operation: selectedOperation.name,
-          query,
+          query: finalQuery,
           variables
         });
         setSavedTasks((prev) => [task, ...(prev || [])]);
         setRequestName('');
-        setVariablesJson('{\n  \n}');
+        setVariableValues({});
+        setSelectedFields(new Set());
         setQueryText('');
         alert('Request task saved');
-      } catch (error: any) {
-        alert(error?.message || 'Failed to save request task');
       }
+    } catch (error: any) {
+      alert(error?.message || 'Failed to save request task');
     }
   }
 
@@ -243,7 +247,8 @@ export default function GraphQLEndpoints() {
       if (editingTask?.id === taskId || editingTask?._id === taskId) {
         setEditingTask(null);
         setRequestName('');
-        setVariablesJson('{\n  \n}');
+        setVariableValues({});
+        setSelectedFields(new Set());
         setQueryText('');
       }
     } catch (error: any) {
@@ -254,7 +259,7 @@ export default function GraphQLEndpoints() {
   function handleEditTask(task: any) {
     setEditingTask(task);
     setRequestName(task.name);
-    setVariablesJson(JSON.stringify(task.variables || {}, null, 2));
+    setVariableValues(task.variables || {});
     setQueryText(task.query || '');
 
     const matchingIndex = endpoints.findIndex((e) => e.url === task.endpoint);
@@ -269,7 +274,8 @@ export default function GraphQLEndpoints() {
   function cancelEdit() {
     setEditingTask(null);
     setRequestName('');
-    setVariablesJson('{\n  \n}');
+    setVariableValues({});
+    setSelectedFields(new Set());
     setQueryText('');
   }
 
@@ -309,7 +315,9 @@ export default function GraphQLEndpoints() {
                           onClick={() => {
                             setSelectedIndex(index);
                             setSelectedOperation({ kind: 'query', name: operation.name, args: operation.args, returnType: operation.returnType });
-                            setQueryText(buildGraphQLQuery('query', operation.name, operation.args, operation.returnType?.kind || 'OBJECT'));
+                            setSelectedFields(new Set());
+                            setVariableValues({});
+                            setQueryText('');
                           }}
                         >
                           {operation.name}{operation.args.length ? `(${operation.args.map((arg:any)=>`${arg.name}: ${arg.type}`).join(', ')})` : ''}
@@ -327,7 +335,9 @@ export default function GraphQLEndpoints() {
                           onClick={() => {
                             setSelectedIndex(index);
                             setSelectedOperation({ kind: 'mutation', name: operation.name, args: operation.args, returnType: operation.returnType });
-                            setQueryText(buildGraphQLQuery('mutation', operation.name, operation.args, operation.returnType?.kind || 'OBJECT'));
+                            setSelectedFields(new Set());
+                            setVariableValues({});
+                            setQueryText('');
                           }}
                         >
                           {operation.name}{operation.args.length ? `(${operation.args.map((arg:any)=>`${arg.name}: ${arg.type}`).join(', ')})` : ''}
@@ -335,6 +345,12 @@ export default function GraphQLEndpoints() {
                       )) : <span className="text-sm text-slate-500">No mutation operations</span>}
                     </div>
                   </div>
+                </div>
+              )}
+              {selectedEndpoint === endpoint && selectedOperation && (
+                <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-sm text-slate-500 mb-2">Selected operation query</div>
+                  <pre className="text-xs overflow-x-auto whitespace-pre-wrap">{selectedOperationQuery}</pre>
                 </div>
               )}
               <div className="mt-3 flex flex-wrap gap-2">
@@ -394,14 +410,51 @@ export default function GraphQLEndpoints() {
                   <label className="block text-sm font-medium">Request name</label>
                   <input className="mt-1 w-full rounded border px-2 py-1" value={requestName} onChange={(e) => setRequestName(e.target.value)} placeholder="My GraphQL request" />
                 </div>
+
+                {selectedOperation && (
+                  <>
+                    <div className="rounded border border-slate-200 bg-slate-50 p-4 space-y-4">
+                      <div>
+                        <div className="text-sm font-semibold mb-2">Select output fields</div>
+                        <FieldSelector
+                          schema={selectedEndpoint.schema}
+                          returnTypeName={selectedOperation.returnType?.name || ''}
+                          selectedFields={selectedFields}
+                          onFieldsChange={setSelectedFields}
+                        />
+                      </div>
+
+                      {selectedOperation.args && selectedOperation.args.length > 0 && (
+                        <div className="border-t pt-4">
+                          <div className="text-sm font-semibold mb-3">Fill in variables</div>
+                          <div className="space-y-3">
+                            {selectedOperation.args.map((arg: any) => (
+                              <VariableInput
+                                key={arg.name}
+                                name={arg.name}
+                                type={arg.type}
+                                value={variableValues[arg.name]}
+                                onChange={(value) => setVariableValues((prev) => ({ ...prev, [arg.name]: value }))}
+                                schema={selectedEndpoint.schema?.__schema}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="border-t pt-4">
+                        <div className="text-sm font-semibold mb-2">Generated query</div>
+                        <pre className="text-xs overflow-x-auto whitespace-pre-wrap bg-white rounded p-3 border border-slate-200 max-h-48">{selectedOperationQuery}</pre>
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <div>
-                  <label className="block text-sm font-medium">Query</label>
-                  <textarea className="mt-1 w-full h-36 rounded border p-2" value={queryText} onChange={(e) => setQueryText(e.target.value)} />
+                  <label className="block text-sm font-medium">Query (optional - override generated)</label>
+                  <textarea className="mt-1 w-full h-24 rounded border p-2" value={queryText} onChange={(e) => setQueryText(e.target.value)} />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium">Variables (JSON)</label>
-                  <textarea className="mt-1 w-full h-24 rounded border p-2" value={variablesJson} onChange={(e) => setVariablesJson(e.target.value)} />
-                </div>
+
                 <div className="flex flex-wrap gap-2">
                   <button className="px-4 py-2 bg-green-600 text-white rounded" onClick={saveRequestTask}>{editingTask ? 'Save Request Task' : 'Create Request Task'}</button>
                   {editingTask && (
@@ -409,18 +462,6 @@ export default function GraphQLEndpoints() {
                   )}
                 </div>
               </div>
-              {selectedOperation && (
-                <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-sm text-slate-500">Selected operation</div>
-                  <div className="font-medium">{selectedOperation.kind}: {selectedOperation.name}</div>
-                </div>
-              )}
-              {previewTask && (
-                <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-sm text-slate-500 mb-2">Task preview</div>
-                  <pre className="text-xs overflow-x-auto">{JSON.stringify(previewTask, null, 2)}</pre>
-                </div>
-              )}
             </>
           )}
         </div>
