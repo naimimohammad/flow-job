@@ -1,7 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactFlow, { Background, Controls, addEdge, MiniMap, useNodesState, useEdgesState } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { createWorkflow, updateWorkflow } from '../api';
+import { createWorkflow, updateWorkflow, listRequestTasks } from '../api';
 
 const defaultLabels: Record<string, string> = {
   start: 'Start',
@@ -50,6 +50,19 @@ export default function Editor({ workflow, onClose }: any) {
   const [selectedElement, setSelectedElement] = useState<{ id: string; type: 'node' | 'edge' } | null>(null);
   const [localName, setLocalName] = useState<string>(workflow.name || '');
   const [localDescription, setLocalDescription] = useState<string>(workflow.description || '');
+  const [requestTasks, setRequestTasks] = useState<any[]>([]);
+
+  useEffect(() => {
+    async function loadRequestTasks() {
+      try {
+        const tasks = await listRequestTasks();
+        setRequestTasks(tasks);
+      } catch (error) {
+        console.error('Failed to load request tasks', error);
+      }
+    }
+    loadRequestTasks();
+  }, []);
 
   const onConnect = useCallback((params: any) => setEdges((eds: any) => addEdge(params, eds)), [setEdges]);
   const onSelectionChange = useCallback((selection: any) => {
@@ -179,9 +192,37 @@ export default function Editor({ workflow, onClose }: any) {
                 <input className="mt-1 block w-full rounded border px-2 py-1" value={selectedNode.data?.label || ''} onChange={(e) => handlePropertyChange('label', e.target.value)} />
               </div>
               {selectedNode.data?.type === 'task' && (
-                <div>
-                  <label className="block text-sm font-medium">Job</label>
-                  <input className="mt-1 block w-full rounded border px-2 py-1" value={selectedNode.data?.job || ''} onChange={(e) => handlePropertyChange('job', e.target.value)} />
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium">Request Task</label>
+                    <select
+                      className="mt-1 block w-full rounded border px-2 py-1"
+                      value={selectedNode.data?.job || ''}
+                      onChange={(e) => {
+                        const taskId = e.target.value;
+                        if (taskId) {
+                          const task = requestTasks.find((t) => t._id === taskId);
+                          handlePropertyChange('job', taskId);
+                          if (task?.name) {
+                            handlePropertyChange('label', task.name);
+                          }
+                        } else {
+                          handlePropertyChange('job', '');
+                        }
+                      }}
+                    >
+                      <option value="">Select request task or enter manual job</option>
+                      {requestTasks.map((task) => (
+                        <option key={task._id} value={task._id}>
+                          {task.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">Manual job</label>
+                    <input className="mt-1 block w-full rounded border px-2 py-1" value={selectedNode.data?.job || ''} onChange={(e) => handlePropertyChange('job', e.target.value)} placeholder="customTask or request task id" />
+                  </div>
                 </div>
               )}
               {selectedNode.data?.type === 'condition' && (

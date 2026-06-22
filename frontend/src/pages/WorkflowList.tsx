@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { listWorkflows, createWorkflow, executeWorkflow, deleteWorkflow, updateWorkflow } from '../api';
-import { subscribeExecution } from '../sse';
 import Editor from './Editor';
 import ExecutionViewer from './ExecutionViewer';
 

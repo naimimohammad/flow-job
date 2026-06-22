@@ -31,3 +31,18 @@ export async function executeWorkflow(id: string, mode = 'function') {
   const r = await api.post(`/api/workflows/${id}/execute`, { mode });
   return r.data;
 }
+
+export async function listRequestTasks() {
+  const r = await api.get('/api/request-tasks');
+  return r.data;
+}
+
+export async function createRequestTask(body: any) {
+  const r = await api.post('/api/request-tasks', body);
+  return r.data;
+}
+
+export async function deleteRequestTask(id: string) {
+  const r = await api.delete(`/api/request-tasks/${id}`);
+  return r.data;
+}

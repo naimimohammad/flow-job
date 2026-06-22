@@ -1,7 +1,9 @@
+import axios from 'axios';
 import { logger } from '../utils/logger';
 import { registry } from '../registry';
 import { enqueue } from '../queues/queue';
 import { Execution } from '../models/Execution';
+import { RequestTask } from '../models/RequestTask';
 import { emitEvent } from '../sse';
 
 type Node = any;
@@ -39,9 +41,25 @@ export async function runWorkflow(workflowJson: any, executionId: string, mode: 
         emitEvent(executionId, 'node:enqueued', { nodeId: node.id, job: jobName });
       } else {
         const fn = registry[jobName];
-        if (!fn) throw new Error(`Job ${jobName} not registered`);
-        await fn(context);
-        emitEvent(executionId, 'node:success', { nodeId: node.id, job: jobName });
+        if (fn) {
+          await fn(context);
+          emitEvent(executionId, 'node:success', { nodeId: node.id, job: jobName });
+        } else {
+          const requestTask = await RequestTask.findById(jobName);
+          if (!requestTask) throw new Error(`Job ${jobName} not registered`);
+          const response = await axios.post(
+            requestTask.endpoint,
+            {
+              query: requestTask.query,
+              variables: requestTask.variables || {}
+            },
+            { headers: { 'Content-Type': 'application/json' } }
+          );
+          if (response.data?.errors && response.data.errors.length > 0) {
+            throw new Error(`GraphQL request failed: ${JSON.stringify(response.data.errors)}`);
+          }
+          emitEvent(executionId, 'node:success', { nodeId: node.id, requestTask: requestTask.id, response: response.data });
+        }
       }
       const next = nextNodes(node.id);
       for (const n of next) await executeNode(n);
