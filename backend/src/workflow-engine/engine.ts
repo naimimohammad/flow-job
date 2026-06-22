@@ -94,7 +94,7 @@ export async function runWorkflow(workflowJson: any, executionId: string, mode: 
 
     if (node.type === 'parallel') {
       const branches = nextNodes(node.id);
-      await Promise.all(branches.map((b) => executeNode(b)));
+      await Promise.all(branches.map((b: Node) => executeNode(b)));
       // after all branches, continue to next after parallel node
       const after = edges.filter((e: any) => e.source === node.id && e.meta === 'join').map((e:any)=> nodes[e.target]);
       for (const n of after) await executeNode(n);

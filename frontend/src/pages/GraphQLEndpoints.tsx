@@ -1,48 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { createRequestTask, listRequestTasks } from '../api';
-
-const introspectionQuery = `
-  query IntrospectionQuery {
-    __schema {
-      queryType { name }
-      mutationType { name }
-      types {
-        kind
-        name
-        fields {
-          name
-          args {
-            name
-            type {
-              kind
-              name
-              ofType {
-                kind
-                name
-                ofType {
-                  kind
-                  name
-                }
-              }
-            }
-          }
-          type {
-            kind
-            name
-            ofType {
-              kind
-              name
-              ofType {
-                kind
-                name
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
+import {
+  createRequestTask,
+  listRequestTasks,
+  updateRequestTask,
+  deleteRequestTask,
+  listGraphQLEndpoints,
+  createGraphQLEndpoint,
+  deleteGraphQLEndpoint,
+  graphqlIntrospect
+} from '../api';
 
 function parseEndpoints(input: string) {
   return input
@@ -84,19 +50,8 @@ function buildGraphQLQuery(operationType: 'query' | 'mutation', operation: strin
 }
 
 async function introspectGraphQLEndpoint(url: string) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: introspectionQuery })
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} ${response.statusText}`);
-  }
-  const json = await response.json();
-  if (json.errors) {
-    throw new Error(json.errors.map((err: any) => err.message).join('; '));
-  }
-  return json.data;
+  const schema = await graphqlIntrospect(url);
+  return schema;
 }
 
 export default function GraphQLEndpoints() {
@@ -109,9 +64,12 @@ export default function GraphQLEndpoints() {
     args: Array<{ name: string; type: string }>;
     returnType: { kind: string; name?: string };
   } | null>(null);
+  const [savedEndpoints, setSavedEndpoints] = useState<any[]>([]);
   const [requestName, setRequestName] = useState('');
   const [variablesJson, setVariablesJson] = useState('{\n  \n}');
+  const [queryText, setQueryText] = useState('');
   const [savedTasks, setSavedTasks] = useState<any[]>([]);
+  const [editingTask, setEditingTask] = useState<any>(null);
 
   const selectedEndpoint = selectedIndex !== null ? endpoints[selectedIndex] : null;
 
@@ -136,15 +94,16 @@ export default function GraphQLEndpoints() {
   }, [selectedEndpoint, selectedOperation, requestName, variablesJson]);
 
   useEffect(() => {
-    async function loadSavedTasks() {
+    async function loadSavedData() {
       try {
-        const tasks = await listRequestTasks();
+        const [tasks, endpoints] = await Promise.all([listRequestTasks(), listGraphQLEndpoints()]);
         setSavedTasks(tasks);
+        setSavedEndpoints(endpoints);
       } catch (error) {
-        console.error('Failed to load request tasks', error);
+        console.error('Failed to load saved GraphQL data', error);
       }
     }
-    loadSavedTasks();
+    loadSavedData();
   }, []);
 
   async function handleImport() {
@@ -169,8 +128,49 @@ export default function GraphQLEndpoints() {
     setEndpoints(results);
   }
 
-  async function handleCreateTask() {
-    if (!selectedEndpoint || !selectedOperation) return;
+  function isEndpointSaved(url: string) {
+    return savedEndpoints.some((endpoint) => endpoint.url === url);
+  }
+
+  async function saveEndpoint(url: string) {
+    if (isEndpointSaved(url)) return;
+    try {
+      const endpoint = await createGraphQLEndpoint({ url });
+      setSavedEndpoints((prev) => [endpoint, ...(prev || [])]);
+    } catch (error: any) {
+      alert(error?.message || 'Failed to save endpoint');
+    }
+  }
+
+  async function deleteSavedEndpoint(id: string) {
+    if (!confirm('Delete this saved endpoint?')) return;
+    try {
+      await deleteGraphQLEndpoint(id);
+      setSavedEndpoints((prev) => prev.filter((endpoint) => endpoint._id !== id));
+    } catch (error: any) {
+      alert(error?.message || 'Failed to delete saved endpoint');
+    }
+  }
+
+  async function handleUseSavedEndpoint(url: string) {
+    setEndpointInput(url);
+    setSelectedIndex(null);
+    setSelectedOperation(null);
+    setEndpoints([{ url, status: 'pending', queryOperations: [], mutationOperations: [], error: '' }]);
+    try {
+      const schema = await introspectGraphQLEndpoint(url);
+      const queryTypeName = schema?.__schema?.queryType?.name;
+      const mutationTypeName = schema?.__schema?.mutationType?.name;
+      const queryOperations = getRootTypeFields(schema, queryTypeName);
+      const mutationOperations = getRootTypeFields(schema, mutationTypeName);
+      setEndpoints([{ url, status: 'ready', schema, queryOperations, mutationOperations, error: '' }]);
+    } catch (error: any) {
+      setEndpoints([{ url, status: 'error', queryOperations: [], mutationOperations: [], error: error.message || 'Failed to fetch schema' }]);
+    }
+  }
+
+  async function saveRequestTask() {
+    if (!selectedEndpoint) return;
     let variables = {};
     try {
       variables = JSON.parse(variablesJson);
@@ -179,29 +179,98 @@ export default function GraphQLEndpoints() {
       return;
     }
 
-    const query = buildGraphQLQuery(
+    const query = queryText || (selectedOperation ? buildGraphQLQuery(
       selectedOperation.kind,
       selectedOperation.name,
       selectedOperation.args || [],
       selectedOperation.returnType?.kind || 'OBJECT'
-    );
+    ) : '');
 
-    try {
-      const task = await createRequestTask({
-        name: requestName || `${selectedOperation.name} request`,
-        endpoint: selectedEndpoint.url,
-        operationType: selectedOperation.kind,
-        operation: selectedOperation.name,
-        query,
-        variables
-      });
-      setSavedTasks((prev) => [task, ...(prev || [])]);
-      setRequestName('');
-      setVariablesJson('{\n  \n}');
-      alert('Request task saved');
-    } catch (error: any) {
-      alert(error?.message || 'Failed to save request task');
+    if (!query) {
+      alert('Query text is required');
+      return;
     }
+
+    if (editingTask) {
+      try {
+        const updated = await updateRequestTask(editingTask._id, {
+          name: requestName || editingTask.name,
+          endpoint: selectedEndpoint.url,
+          operationType: editingTask.operationType,
+          operation: editingTask.operation,
+          query,
+          variables
+        });
+        setSavedTasks((prev) => prev.map((task) => (task._id === updated._id ? updated : task)));
+        setEditingTask(null);
+        setRequestName('');
+        setVariablesJson('{\n  \n}');
+        setQueryText('');
+        alert('Request task updated');
+      } catch (error: any) {
+        alert(error?.message || 'Failed to update request task');
+      }
+    } else {
+      if (!selectedOperation) {
+        alert('Select an operation or provide a query');
+        return;
+      }
+      try {
+        const task = await createRequestTask({
+          name: requestName || `${selectedOperation.name} request`,
+          endpoint: selectedEndpoint.url,
+          operationType: selectedOperation.kind,
+          operation: selectedOperation.name,
+          query,
+          variables
+        });
+        setSavedTasks((prev) => [task, ...(prev || [])]);
+        setRequestName('');
+        setVariablesJson('{\n  \n}');
+        setQueryText('');
+        alert('Request task saved');
+      } catch (error: any) {
+        alert(error?.message || 'Failed to save request task');
+      }
+    }
+  }
+
+  async function handleDeleteTask(taskId: string) {
+    if (!confirm('Delete this request task?')) return;
+    try {
+      await deleteRequestTask(taskId);
+      setSavedTasks((prev) => prev.filter((task) => task._id !== taskId));
+      if (editingTask?.id === taskId || editingTask?._id === taskId) {
+        setEditingTask(null);
+        setRequestName('');
+        setVariablesJson('{\n  \n}');
+        setQueryText('');
+      }
+    } catch (error: any) {
+      alert(error?.message || 'Failed to delete request task');
+    }
+  }
+
+  function handleEditTask(task: any) {
+    setEditingTask(task);
+    setRequestName(task.name);
+    setVariablesJson(JSON.stringify(task.variables || {}, null, 2));
+    setQueryText(task.query || '');
+
+    const matchingIndex = endpoints.findIndex((e) => e.url === task.endpoint);
+    if (matchingIndex !== -1) {
+      setSelectedIndex(matchingIndex);
+    } else {
+      setEndpoints((prev) => [...prev, { url: task.endpoint, status: 'ready', queryOperations: [], mutationOperations: [], error: '' }]);
+      setSelectedIndex(endpoints.length);
+    }
+  }
+
+  function cancelEdit() {
+    setEditingTask(null);
+    setRequestName('');
+    setVariablesJson('{\n  \n}');
+    setQueryText('');
   }
 
   return (
@@ -237,7 +306,11 @@ export default function GraphQLEndpoints() {
                         <button
                           key={operation.name}
                           className={`rounded border px-2 py-1 text-sm ${selectedEndpoint === endpoint && selectedOperation?.kind === 'query' && selectedOperation.name === operation.name ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-700'}`}
-                          onClick={() => { setSelectedIndex(index); setSelectedOperation({ kind: 'query', name: operation.name, args: operation.args, returnType: operation.returnType }); }}
+                          onClick={() => {
+                            setSelectedIndex(index);
+                            setSelectedOperation({ kind: 'query', name: operation.name, args: operation.args, returnType: operation.returnType });
+                            setQueryText(buildGraphQLQuery('query', operation.name, operation.args, operation.returnType?.kind || 'OBJECT'));
+                          }}
                         >
                           {operation.name}{operation.args.length ? `(${operation.args.map((arg:any)=>`${arg.name}: ${arg.type}`).join(', ')})` : ''}
                         </button>
@@ -251,7 +324,11 @@ export default function GraphQLEndpoints() {
                         <button
                           key={operation.name}
                           className={`rounded border px-2 py-1 text-sm ${selectedEndpoint === endpoint && selectedOperation?.kind === 'mutation' && selectedOperation.name === operation.name ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-700'}`}
-                          onClick={() => { setSelectedIndex(index); setSelectedOperation({ kind: 'mutation', name: operation.name, args: operation.args, returnType: operation.returnType }); }}
+                          onClick={() => {
+                            setSelectedIndex(index);
+                            setSelectedOperation({ kind: 'mutation', name: operation.name, args: operation.args, returnType: operation.returnType });
+                            setQueryText(buildGraphQLQuery('mutation', operation.name, operation.args, operation.returnType?.kind || 'OBJECT'));
+                          }}
                         >
                           {operation.name}{operation.args.length ? `(${operation.args.map((arg:any)=>`${arg.name}: ${arg.type}`).join(', ')})` : ''}
                         </button>
@@ -260,18 +337,52 @@ export default function GraphQLEndpoints() {
                   </div>
                 </div>
               )}
-              <button
-                className="mt-3 px-3 py-1 bg-slate-100 rounded text-sm"
-                onClick={() => setSelectedIndex(index)}
-              >
-                Select Endpoint
-              </button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="px-3 py-1 bg-slate-100 rounded text-sm"
+                  onClick={() => setSelectedIndex(index)}
+                >
+                  Select Endpoint
+                </button>
+                <button
+                  className={`px-3 py-1 rounded text-sm ${isEndpointSaved(endpoint.url) ? 'bg-slate-200 text-slate-700 cursor-not-allowed' : 'bg-blue-600 text-white'}`}
+                  onClick={() => saveEndpoint(endpoint.url)}
+                  disabled={isEndpointSaved(endpoint.url)}
+                >
+                  {isEndpointSaved(endpoint.url) ? 'Saved' : 'Save Endpoint'}
+                </button>
+              </div>
             </div>
           ))}
         </div>
 
-        <div className="bg-white p-4 rounded shadow-sm space-y-4">
-          <div className="font-semibold">Request Task Builder</div>
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded shadow-sm space-y-4">
+            <div className="font-semibold">Saved GraphQL Endpoints</div>
+            {savedEndpoints.length === 0 ? (
+              <div className="text-slate-500">No saved endpoints yet. Use the Save button on an imported endpoint.</div>
+            ) : (
+              <div className="space-y-3">
+                {savedEndpoints.map((endpoint) => (
+                  <div key={endpoint._id} className="rounded border border-slate-200 p-3 bg-slate-50">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium break-all">{endpoint.url}</div>
+                        {endpoint.name && <div className="text-slate-500 text-sm">{endpoint.name}</div>}
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="px-2 py-1 bg-blue-600 text-white rounded text-sm" onClick={() => handleUseSavedEndpoint(endpoint.url)}>Use</button>
+                        <button className="px-2 py-1 bg-red-600 text-white rounded text-sm" onClick={() => deleteSavedEndpoint(endpoint._id)}>Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white p-4 rounded shadow-sm space-y-4">
+            <div className="font-semibold">Request Task Builder</div>
           {!selectedEndpoint ? (
             <div className="text-slate-500">Select an imported endpoint and choose an operation to build a task.</div>
           ) : (
@@ -284,11 +395,18 @@ export default function GraphQLEndpoints() {
                   <input className="mt-1 w-full rounded border px-2 py-1" value={requestName} onChange={(e) => setRequestName(e.target.value)} placeholder="My GraphQL request" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium">Variables (JSON)</label>
-                  <textarea className="mt-1 w-full h-28 rounded border p-2" value={variablesJson} onChange={(e) => setVariablesJson(e.target.value)} />
+                  <label className="block text-sm font-medium">Query</label>
+                  <textarea className="mt-1 w-full h-36 rounded border p-2" value={queryText} onChange={(e) => setQueryText(e.target.value)} />
                 </div>
                 <div>
-                  <button className="px-4 py-2 bg-green-600 text-white rounded" onClick={handleCreateTask} disabled={!selectedOperation}>Create Request Task</button>
+                  <label className="block text-sm font-medium">Variables (JSON)</label>
+                  <textarea className="mt-1 w-full h-24 rounded border p-2" value={variablesJson} onChange={(e) => setVariablesJson(e.target.value)} />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button className="px-4 py-2 bg-green-600 text-white rounded" onClick={saveRequestTask}>{editingTask ? 'Save Request Task' : 'Create Request Task'}</button>
+                  {editingTask && (
+                    <button className="px-4 py-2 bg-slate-200 rounded" onClick={cancelEdit}>Cancel Edit</button>
+                  )}
                 </div>
               </div>
               {selectedOperation && (
@@ -314,14 +432,23 @@ export default function GraphQLEndpoints() {
           <div className="space-y-3">
             {savedTasks.map((task) => (
               <div key={task._id} className="rounded border border-slate-200 p-3 bg-slate-50">
-                <div className="font-medium">{task.name}</div>
-                <div className="text-slate-500 text-sm">{task.operationType}: {task.operation}</div>
-                <div className="text-slate-500 text-sm break-all">Endpoint: {task.endpoint}</div>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="font-medium">{task.name}</div>
+                    <div className="text-slate-500 text-sm">{task.operationType}: {task.operation}</div>
+                    <div className="text-slate-500 text-sm break-all">Endpoint: {task.endpoint}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="px-2 py-1 bg-blue-600 text-white rounded text-sm" onClick={() => handleEditTask(task)}>Edit</button>
+                    <button className="px-2 py-1 bg-red-600 text-white rounded text-sm" onClick={() => handleDeleteTask(task._id)}>Delete</button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
     </div>
+  </div>
   );
 }
