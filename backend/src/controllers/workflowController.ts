@@ -14,10 +14,10 @@ function validateWorkflowJson(workflowJson: any) {
 }
 
 export async function createWorkflow(req: Request, res: Response) {
-  const { name, workflowJson } = req.body;
+  const { name, description, workflowJson } = req.body;
   try {
     validateWorkflowJson(workflowJson);
-    const w = await Workflow.create({ name, workflowJson });
+    const w = await Workflow.create({ name, description, workflowJson });
     res.status(201).json(w);
   } catch (err: any) {
     res.status(400).json({ message: err.message });
@@ -37,8 +37,12 @@ export async function getWorkflow(req: Request, res: Response) {
 
 export async function updateWorkflow(req: Request, res: Response) {
   try {
-    validateWorkflowJson(req.body.workflowJson);
-    const w = await Workflow.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (req.body.workflowJson) validateWorkflowJson(req.body.workflowJson);
+    const updateFields: any = {};
+    if (req.body.name !== undefined) updateFields.name = req.body.name;
+    if (req.body.description !== undefined) updateFields.description = req.body.description;
+    if (req.body.workflowJson !== undefined) updateFields.workflowJson = req.body.workflowJson;
+    const w = await Workflow.findByIdAndUpdate(req.params.id, updateFields, { new: true });
     res.json(w);
   } catch (err: any) {
     res.status(400).json({ message: err.message });

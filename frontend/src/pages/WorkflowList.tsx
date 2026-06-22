@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { listWorkflows, createWorkflow, executeWorkflow, deleteWorkflow } from '../api';
+import { listWorkflows, createWorkflow, executeWorkflow, deleteWorkflow, updateWorkflow } from '../api';
 import { subscribeExecution } from '../sse';
 import Editor from './Editor';
 import ExecutionViewer from './ExecutionViewer';
@@ -21,6 +21,7 @@ export default function WorkflowList() {
   async function handleCreate() {
     const newW = await createWorkflow({
       name: 'New workflow',
+      description: '',
       workflowJson: {
         id: 'workflow',
         nodes: [
@@ -44,8 +45,18 @@ export default function WorkflowList() {
       <div className="grid gap-2">
         {workflows.map((w) => (
           <div key={w._id} className="p-3 bg-white rounded shadow-sm flex justify-between">
-            <div>{w.name}</div>
+            <div>
+              <div className="font-medium">{w.name}</div>
+              <div className="text-sm text-slate-500">{w.description}</div>
+            </div>
             <div className="flex gap-2">
+              <button className="px-2 py-1 bg-yellow-500 text-white rounded" onClick={async () => {
+                const newName = prompt('New name', w.name);
+                if (newName && newName !== w.name) {
+                  await updateWorkflow(w._id, { name: newName });
+                  load();
+                }
+              }}>Rename</button>
               <button className="px-2 py-1 bg-green-600 text-white rounded" onClick={() => setEditing(w)}>Edit</button>
               <button className="px-2 py-1 bg-indigo-600 text-white rounded" onClick={async () => {
                 const resp = await executeWorkflow(w._id);

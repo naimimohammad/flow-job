@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IWorkflow extends Document {
   name: string;
+  description?: string;
   version: number;
   workflowJson: any;
   createdAt: Date;
@@ -9,6 +10,7 @@ export interface IWorkflow extends Document {
 
 const WorkflowSchema: Schema = new Schema({
   name: { type: String, required: true },
+  description: { type: String, default: '' },
   version: { type: Number, default: 1 },
   workflowJson: { type: Schema.Types.Mixed, required: true },
   createdAt: { type: Date, default: Date.now }

@@ -48,6 +48,8 @@ export default function Editor({ workflow, onClose }: any) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedElement, setSelectedElement] = useState<{ id: string; type: 'node' | 'edge' } | null>(null);
+  const [localName, setLocalName] = useState<string>(workflow.name || '');
+  const [localDescription, setLocalDescription] = useState<string>(workflow.description || '');
 
   const onConnect = useCallback((params: any) => setEdges((eds: any) => addEdge(params, eds)), [setEdges]);
   const onSelectionChange = useCallback((selection: any) => {
@@ -114,9 +116,9 @@ export default function Editor({ workflow, onClose }: any) {
     };
 
     if (workflow._id) {
-      await updateWorkflow(workflow._id, { name: workflow.name || 'workflow', workflowJson: wf });
+      await updateWorkflow(workflow._id, { name: localName || workflow.name || 'workflow', description: localDescription, workflowJson: wf });
     } else {
-      await createWorkflow({ name: workflow.name || 'workflow', workflowJson: wf });
+      await createWorkflow({ name: localName || workflow.name || 'workflow', description: localDescription, workflowJson: wf });
     }
     onClose();
   }
@@ -124,8 +126,14 @@ export default function Editor({ workflow, onClose }: any) {
   return (
     <div className="grid grid-cols-[1fr,280px] gap-4">
       <div className="h-[600px] bg-white p-4 rounded shadow">
-        <div className="flex justify-between mb-2">
-          <div className="font-semibold">Editor: {workflow.name}</div>
+        <div className="flex justify-between mb-2 items-center">
+          <div className="flex-1">
+            <div className="flex gap-2">
+              <input className="font-semibold text-lg rounded border px-2 py-1 w-64" value={localName} onChange={(e) => setLocalName(e.target.value)} />
+              <input className="rounded border px-2 py-1 w-96" placeholder="Description" value={localDescription} onChange={(e) => setLocalDescription(e.target.value)} />
+            </div>
+            <div className="text-sm text-slate-500">Editor</div>
+          </div>
           <div className="flex gap-2">
             <button className="px-2 py-1 bg-gray-200 rounded" onClick={onClose}>Close</button>
             <button className="px-2 py-1 bg-blue-600 text-white rounded" onClick={handleSave}>Save</button>

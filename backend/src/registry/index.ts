@@ -15,6 +15,7 @@ export async function validateOrder(context: Context) {
 
 export async function chargePayment(context: Context) {
   logger.info('chargePayment called');
+  console.log(context , "from chargePayment");
   // simulate async charge
   await new Promise((r) => setTimeout(r, 200));
   return { charged: true };
@@ -26,8 +27,11 @@ export async function sendEmail(context: Context) {
   return { sent: true };
 }
 
+
+
+
 export const registry: Record<string, (context: Context) => Promise<any>> = {
   validateOrder,
   chargePayment,
-  sendEmail
+  sendEmail,
 };
