@@ -5,6 +5,7 @@ import { enqueue } from '../queues/queue';
 import { Execution } from '../models/Execution';
 import { RequestTask } from '../models/RequestTask';
 import { emitEvent } from '../sse';
+import { createExecutionContext, storeTaskResult } from './context';
 
 type Node = any;
 
@@ -20,7 +21,7 @@ export async function runWorkflow(workflowJson: any, executionId: string, mode: 
   const start = Object.values(nodes).find((n: Node) => n.type === 'start');
   if (!start) throw new Error('Start node not found');
 
-  const context = { ...initialContext };
+  const context = createExecutionContext(initialContext);
 
   await Execution.findByIdAndUpdate(executionId, { status: 'RUNNING', startedAt: new Date() });
 
@@ -42,8 +43,9 @@ export async function runWorkflow(workflowJson: any, executionId: string, mode: 
       } else {
         const fn = registry[jobName];
         if (fn) {
-          await fn(context);
-          emitEvent(executionId, 'node:success', { nodeId: node.id, job: jobName });
+          const result = await fn(context);
+          storeTaskResult(context, node, result);
+          emitEvent(executionId, 'node:success', { nodeId: node.id, job: jobName, result });
         } else {
           const requestTask = await RequestTask.findById(jobName);
           if (!requestTask) throw new Error(`Job ${jobName} not registered`);
@@ -70,6 +72,15 @@ export async function runWorkflow(workflowJson: any, executionId: string, mode: 
             }
             console.log('REST request task:', { url: requestTask.endpoint, method, headers: requestTask.headers, body: requestTask.body });
             response = await axios(requestConfig);
+            const restResult = {
+              status: response.status,
+              statusText: response.statusText,
+              body: response.data,
+              headers: response.headers
+            };
+            console.log(restResult.headers)
+            storeTaskResult(context, node, restResult);
+            emitEvent(executionId, 'node:success', { nodeId: node.id, requestTask: requestTask.id, response: restResult });
           } else {
             const body = {
               query: requestTask.query,
@@ -84,9 +95,9 @@ export async function runWorkflow(workflowJson: any, executionId: string, mode: 
             if (response.data?.errors && response.data.errors.length > 0) {
               throw new Error(`GraphQL request failed: ${JSON.stringify(response.data.errors)}`);
             }
+            storeTaskResult(context, node, response.data);
+            emitEvent(executionId, 'node:success', { nodeId: node.id, requestTask: requestTask.id, response: response.data });
           }
-
-          emitEvent(executionId, 'node:success', { nodeId: node.id, requestTask: requestTask.id, response: response.data });
         }
       }
       const next = nextNodes(node.id);

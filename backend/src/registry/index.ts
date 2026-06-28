@@ -26,6 +26,12 @@ export async function sendEmail(context: Context) {
   await new Promise((r) => setTimeout(r, 100));
   return { sent: true };
 }
+export async function logs(context: Context) {
+  logger.info('logs called');
+  console.log(context)
+  await new Promise((r) => setTimeout(r, 100));
+  return { sent: true };
+}
 
 
 
@@ -34,4 +40,5 @@ export const registry: Record<string, (context: Context) => Promise<any>> = {
   validateOrder,
   chargePayment,
   sendEmail,
+  logs
 };

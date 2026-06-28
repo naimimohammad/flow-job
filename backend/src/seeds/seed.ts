@@ -23,7 +23,8 @@ async function run() {
       { id: '2', type: 'task', data: { job: 'validateOrder' } },
       { id: '3', type: 'task', data: { job: 'chargePayment' } },
       { id: '4', type: 'task', data: { job: 'sendEmail' } },
-      { id: '5', type: 'end' }
+      { id: '5', type: 'task', data: { job: 'logs' } },
+      { id: '6', type: 'end' }
     ],
     edges: [
       { source: '1', target: '2' },
