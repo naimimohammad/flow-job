@@ -9,6 +9,28 @@ const introspectionQuery = `
       types {
         kind
         name
+        enumValues {
+          name
+        }
+        inputFields {
+          name
+          type {
+            kind
+            name
+            ofType {
+              kind
+              name
+              ofType {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                }
+              }
+            }
+          }
+        }
         fields {
           name
           args {
@@ -22,6 +44,10 @@ const introspectionQuery = `
                 ofType {
                   kind
                   name
+                  ofType {
+                    kind
+                    name
+                  }
                 }
               }
             }
@@ -35,6 +61,10 @@ const introspectionQuery = `
               ofType {
                 kind
                 name
+                ofType {
+                  kind
+                  name
+                }
               }
             }
           }
