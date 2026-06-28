@@ -11,6 +11,7 @@ export interface IRequestTask extends Document {
   httpMethod?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   headers?: any;
   body?: any;
+  cookieName?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,6 +24,7 @@ const RequestTaskSchema: Schema = new Schema(
     operationType: { type: String, enum: ['query', 'mutation'] },
     operation: { type: String },
     query: { type: String },
+    cookieName: { type: String },
     variables: { type: Schema.Types.Mixed, default: {} },
     httpMethod: { type: String, enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], default: 'GET' },
     headers: { type: Schema.Types.Mixed, default: {} },

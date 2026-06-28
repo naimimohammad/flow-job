@@ -28,6 +28,7 @@ function serializeHeaders(headers: any) {
 
 export default function RestRequests() {
   const [requestName, setRequestName] = useState('');
+  const [cookieName, setCookieName] = useState('');
   const [url, setUrl] = useState('https://example.com/api');
   const [method, setMethod] = useState('GET');
   const [headersText, setHeadersText] = useState('Content-Type: application/json');
@@ -39,6 +40,7 @@ export default function RestRequests() {
     async function loadSavedTasks() {
       try {
         const tasks = await listRequestTasks();
+        console.log(tasks)
         setSavedTasks(tasks);
       } catch (error) {
         console.error('Failed to load REST request tasks', error);
@@ -55,6 +57,7 @@ export default function RestRequests() {
     setMethod('GET');
     setHeadersText('Content-Type: application/json');
     setBodyText('');
+    setCookieName('');
     setEditingTask(null);
   }
 
@@ -82,7 +85,8 @@ export default function RestRequests() {
           requestType: 'rest',
           httpMethod: method,
           headers,
-          body: parsedBody
+          body: parsedBody,
+          cookieName: cookieName,
         });
         setSavedTasks((prev) => prev.map((task) => (task._id === updated._id ? updated : task)));
         resetForm();
@@ -94,7 +98,8 @@ export default function RestRequests() {
           requestType: 'rest',
           httpMethod: method,
           headers,
-          body: parsedBody
+          body: parsedBody,
+          cookieName: cookieName
         });
         setSavedTasks((prev) => [task, ...(prev || [])]);
         resetForm();
@@ -128,6 +133,7 @@ export default function RestRequests() {
     } else {
       setBodyText(JSON.stringify(task.body, null, 2));
     }
+    setCookieName(task.cookieName || '')
   }
 
   return (
@@ -187,6 +193,15 @@ export default function RestRequests() {
                 value={bodyText}
                 onChange={(e) => setBodyText(e.target.value)}
                 placeholder='{"key":"value"}'
+              />
+            </div>
+            <div>
+                <label className="block text-sm font-medium">Share Cookie</label>
+                <input
+                className="mt-1 w-full rounded border px-2 py-1"
+                value={cookieName}
+                onChange={(e) => setCookieName(e.target.value)}
+                placeholder="Share Cookie Name For Using In Other Tasks"
               />
             </div>
             <div className="flex flex-wrap gap-2">

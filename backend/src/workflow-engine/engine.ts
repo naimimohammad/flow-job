@@ -4,6 +4,7 @@ import { registry } from '../registry';
 import { enqueue } from '../queues/queue';
 import { Execution } from '../models/Execution';
 import { RequestTask } from '../models/RequestTask';
+import { Cookie } from '../models/Cookie';
 import { emitEvent } from '../sse';
 import { createExecutionContext, storeTaskResult } from './context';
 
@@ -79,6 +80,15 @@ export async function runWorkflow(workflowJson: any, executionId: string, mode: 
               headers: response.headers
             };
             console.log(restResult.headers)
+            if(requestTask.cookieName!==undefined) {
+              console.log("the request has been have cookie !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+              console.log(requestTask)
+              const t = await Cookie.findOneAndUpdate({name:requestTask.cookieName}, 
+                {name:requestTask.cookieName,requestName:requestTask.name,value:JSON.stringify(response.headers['set-cookie'])},
+                { upsert: true, new: true, setDefaultsOnInsert: true })
+              console.log(t)
+            }
+            
             storeTaskResult(context, node, restResult);
             emitEvent(executionId, 'node:success', { nodeId: node.id, requestTask: requestTask.id, response: restResult });
           } else {

@@ -62,6 +62,9 @@ export async function updateRequestTask(req: Request, res: Response) {
     if (req.body.httpMethod !== undefined) updateFields.httpMethod = req.body.httpMethod;
     if (req.body.headers !== undefined) updateFields.headers = req.body.headers;
     if (req.body.body !== undefined) updateFields.body = req.body.body;
+    if (req.body.cookieName !== undefined) updateFields.cookieName = req.body.cookieName
+
+
     const task = await RequestTask.findByIdAndUpdate(req.params.id, updateFields, { new: true });
     if (!task) return res.status(404).json({ message: 'Not found' });
     res.json(task);
