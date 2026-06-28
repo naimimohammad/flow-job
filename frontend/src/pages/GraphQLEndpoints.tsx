@@ -75,6 +75,7 @@ export default function GraphQLEndpoints() {
   const [variableValues, setVariableValues] = useState<Record<string, any>>({});
 
   const selectedEndpoint = selectedIndex !== null ? endpoints[selectedIndex] : null;
+  const graphQLTasks = savedTasks.filter((task) => task.requestType === 'graphql' || !task.requestType);
 
   useEffect(() => {
     async function loadSavedData() {
@@ -391,6 +392,7 @@ export default function GraphQLEndpoints() {
                       onVariableValuesChange={setVariableValues}
                       queryText={queryText}
                       onQueryTextChange={setQueryText}
+                      preserveQuery={!!editingTask}
                     />
                   )}
 
@@ -428,11 +430,11 @@ export default function GraphQLEndpoints() {
         </div>
       </div>
 
-      {savedTasks.length > 0 && (
+      {graphQLTasks.length > 0 && (
         <div className="bg-white p-4 rounded shadow-sm">
-          <div className="font-semibold mb-3">Saved Request Tasks</div>
+          <div className="font-semibold mb-3">Saved GraphQL Request Tasks</div>
           <div className="space-y-3">
-            {savedTasks.map((task) => (
+            {graphQLTasks.map((task) => (
               <div key={task._id} className="rounded border border-slate-200 p-3 bg-slate-50">
                 <div className="flex items-start justify-between gap-4">
                   <div>

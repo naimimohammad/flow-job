@@ -406,6 +406,7 @@ interface GraphQLRequestPanelProps {
   onVariableValuesChange: (values: Record<string, any>) => void;
   queryText: string;
   onQueryTextChange: (query: string) => void;
+  preserveQuery?: boolean;
 }
 
 export function GraphQLRequestPanel({
@@ -416,7 +417,8 @@ export function GraphQLRequestPanel({
   variableValues,
   onVariableValuesChange,
   queryText,
-  onQueryTextChange
+  onQueryTextChange,
+  preserveQuery = false
 }: GraphQLRequestPanelProps) {
   const [activeTab, setActiveTab] = useState<'query' | 'variables' | 'selection'>('query');
   const [variablesMode, setVariablesMode] = useState<'form' | 'json'>('form');
@@ -444,10 +446,36 @@ export function GraphQLRequestPanel({
   }, [variableValues, operation.args, schema, variablesMode]);
 
   useEffect(() => {
-    if (!queryText.trim()) {
-      onQueryTextChange(generatedQuery);
-    }
-  }, [operation.name, operation.kind, generatedQuery]);
+    if (preserveQuery) return;
+    const returnTypeName = operation.returnType?.name;
+    if (!returnTypeName) return;
+    onQueryTextChange(
+      buildQueryWithSelection(
+        operation.kind,
+        operation.name,
+        operation.args || [],
+        selectedFields,
+        returnTypeName,
+        schema
+      )
+    );
+  }, [operation.name, operation.kind, preserveQuery]);
+
+  function handleFieldsChange(fields: Set<string>) {
+    onFieldsChange(fields);
+    const returnTypeName = operation.returnType?.name;
+    if (!returnTypeName) return;
+    onQueryTextChange(
+      buildQueryWithSelection(
+        operation.kind,
+        operation.name,
+        operation.args || [],
+        fields,
+        returnTypeName,
+        schema
+      )
+    );
+  }
 
   function applyJsonVariables() {
     try {
@@ -594,7 +622,7 @@ export function GraphQLRequestPanel({
               schema={schema}
               returnTypeName={operation.returnType?.name || ''}
               selectedFields={selectedFields}
-              onFieldsChange={onFieldsChange}
+              onFieldsChange={handleFieldsChange}
             />
           </div>
         )}

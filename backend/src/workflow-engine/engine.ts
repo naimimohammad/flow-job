@@ -47,17 +47,45 @@ export async function runWorkflow(workflowJson: any, executionId: string, mode: 
         } else {
           const requestTask = await RequestTask.findById(jobName);
           if (!requestTask) throw new Error(`Job ${jobName} not registered`);
-          const response = await axios.post(
-            requestTask.endpoint,
-            {
+          const isRest = requestTask.requestType === 'rest' || !!requestTask.httpMethod;
+          let response;
+
+          if (isRest) {
+            const method = (requestTask.httpMethod || 'GET').toUpperCase();
+            const headers = {
+              'Content-Type': 'application/json',
+              ...(requestTask.headers || {})
+            };
+            const requestConfig: any = {
+              url: requestTask.endpoint,
+              method,
+              headers
+            };
+            if (['GET', 'DELETE'].includes(method)) {
+              if (requestTask.body && typeof requestTask.body === 'object') {
+                requestConfig.params = requestTask.body;
+              }
+            } else {
+              requestConfig.data = requestTask.body;
+            }
+            console.log('REST request task:', { url: requestTask.endpoint, method, headers: requestTask.headers, body: requestTask.body });
+            response = await axios(requestConfig);
+          } else {
+            const body = {
               query: requestTask.query,
               variables: requestTask.variables || {}
-            },
-            { headers: { 'Content-Type': 'application/json' } }
-          );
-          if (response.data?.errors && response.data.errors.length > 0) {
-            throw new Error(`GraphQL request failed: ${JSON.stringify(response.data.errors)}`);
+            };
+            console.log('GraphQL request task:', { url: requestTask.endpoint, body });
+            response = await axios.post(
+              requestTask.endpoint,
+              body,
+              { headers: { 'Content-Type': 'application/json' } }
+            );
+            if (response.data?.errors && response.data.errors.length > 0) {
+              throw new Error(`GraphQL request failed: ${JSON.stringify(response.data.errors)}`);
+            }
           }
+
           emitEvent(executionId, 'node:success', { nodeId: node.id, requestTask: requestTask.id, response: response.data });
         }
       }
